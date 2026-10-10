@@ -276,7 +276,7 @@ export function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#f0f4f8] text-slate-700 flex antialiased overflow-x-hidden">
+    <div className="min-h-screen bg-[#f0f4f8] text-slate-700 flex antialiased overflow-x-clip">
       {/* SIDEBAR NEUMÓRFICA SOFT UI */}
       <aside className={`bg-[#f0f4f8] border-r border-slate-200/60 shadow-[4px_0_16px_#d8e2ee] flex flex-col sticky top-0 h-screen transition-all duration-300 z-40 ${isSidebarOpen ? 'w-64' : 'w-20'}`}>
         {/* Brand / Logo */}
@@ -350,7 +350,7 @@ export function App() {
             {/* Header da LUI */}
             <div className="flex flex-wrap items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-200/60 shrink-0">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-2xl neu-blue-accent flex items-center justify-center text-white font-bold text-sm shadow-md">
+                <div className="w-9 h-9 shrink-0 rounded-2xl neu-blue-accent flex items-center justify-center text-white font-bold text-sm shadow-md">
                   <Sparkles className="w-4 h-4" />
                 </div>
                 <div>
@@ -467,7 +467,7 @@ export function App() {
             <div className="shrink-0 neu-pressed rounded-3xl p-3 border border-white/80 space-y-2.5">
               {/* Arquivo Anexado (Se houver) */}
               {selectedFile && (
-                <div className="flex items-center justify-between neu-flat-sm px-3 py-1.5 rounded-xl text-xs">
+                <div className="flex items-center justify-between gap-2 neu-flat-sm px-3 py-1.5 rounded-xl text-xs min-w-0">
                   <span className="font-semibold text-slate-700 truncate max-w-full min-w-0">
                     📹 {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(1)} MB)
                   </span>
