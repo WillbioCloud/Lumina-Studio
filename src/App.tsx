@@ -276,7 +276,7 @@ export function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#f0f4f8] text-slate-700 flex antialiased">
+    <div className="min-h-screen bg-[#f0f4f8] text-slate-700 flex antialiased overflow-x-hidden">
       {/* SIDEBAR NEUMÓRFICA SOFT UI */}
       <aside className={`bg-[#f0f4f8] border-r border-slate-200/60 shadow-[4px_0_16px_#d8e2ee] flex flex-col sticky top-0 h-screen transition-all duration-300 z-40 ${isSidebarOpen ? 'w-64' : 'w-20'}`}>
         {/* Brand / Logo */}
@@ -343,13 +343,13 @@ export function App() {
       </aside>
 
       {/* Área Central / Conteúdo das Abas */}
-      <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
+      <main className="flex-1 min-w-0 p-6 max-w-7xl mx-auto w-full">
         {/* ABA 1: LUI (Language User Interface) - Prompt-Driven Studio */}
         {activeTab === 'studio' && (
           <section className="neu-flat rounded-3xl p-6 border border-white/90 flex flex-col h-[calc(100vh-6.5rem)] max-h-[880px]">
             {/* Header da LUI */}
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-200/60 shrink-0">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-200/60 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
                 <div className="w-9 h-9 rounded-2xl neu-blue-accent flex items-center justify-center text-white font-bold text-sm shadow-md">
                   <Sparkles className="w-4 h-4" />
                 </div>
@@ -360,7 +360,7 @@ export function App() {
               </div>
 
               {/* Seletor Rápido de Modo */}
-              <div className="neu-pressed p-1 rounded-2xl flex items-center gap-1 border border-white/70">
+              <div className="neu-pressed p-1 rounded-2xl flex flex-wrap items-center gap-1 border border-white/70 max-w-full">
                 <button
                   type="button"
                   onClick={() => setStudioMode('synthetic')}
@@ -419,8 +419,8 @@ export function App() {
                     <div
                       className={`p-3.5 rounded-2xl text-xs leading-relaxed ${
                         msg.sender === 'user'
-                          ? 'neu-blue-accent text-white font-medium rounded-tr-none'
-                          : 'neu-pressed text-slate-700 rounded-tl-none border border-white/60'
+                          ? 'neu-blue-accent text-white font-medium rounded-tr-none break-words'
+                          : 'neu-pressed text-slate-700 rounded-tl-none border border-white/60 break-words'
                       }`}
                     >
                       {msg.text}
@@ -468,7 +468,7 @@ export function App() {
               {/* Arquivo Anexado (Se houver) */}
               {selectedFile && (
                 <div className="flex items-center justify-between neu-flat-sm px-3 py-1.5 rounded-xl text-xs">
-                  <span className="font-semibold text-slate-700 truncate max-w-xs">
+                  <span className="font-semibold text-slate-700 truncate max-w-full min-w-0">
                     📹 {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(1)} MB)
                   </span>
                   <button
@@ -505,7 +505,7 @@ export function App() {
 
               {/* Barra de Ações e Configurações Inline da Omnibar */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200/50">
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5 min-w-0 max-w-full">
                   {/* Botão de Anexo para Vídeo / Áudio (Modo Clipping) */}
                   <label
                     title="Anexar vídeo para corte"
@@ -532,7 +532,7 @@ export function App() {
                     value={nicheInput}
                     onChange={(e) => setNicheInput(e.target.value as Niche)}
                     disabled={isGenerating}
-                    className="neu-flat-sm text-[11px] font-semibold text-slate-600 px-2.5 py-1.5 rounded-xl border border-white/60 outline-none cursor-pointer"
+                    className="neu-flat-sm min-w-0 max-w-full text-[11px] font-semibold text-slate-600 px-2.5 py-1.5 rounded-xl border border-white/60 outline-none cursor-pointer"
                   >
                     <option value="universal">Nicho: Universal / Geral</option>
                     <option value="historia">Nicho: História & Civilizações</option>
@@ -548,7 +548,7 @@ export function App() {
                       value={voiceInput}
                       onChange={(e) => setVoiceInput(e.target.value)}
                       disabled={isGenerating}
-                      className="neu-flat-sm text-[11px] font-semibold text-slate-600 px-2.5 py-1.5 rounded-xl border border-white/60 outline-none cursor-pointer"
+                      className="neu-flat-sm min-w-0 max-w-full text-[11px] font-semibold text-slate-600 px-2.5 py-1.5 rounded-xl border border-white/60 outline-none cursor-pointer"
                     >
                       <option value="pt-BR-AntonioNeural">Voz: Antônio (Grave / Sóbrio)</option>
                       <option value="pt-BR-FranciscaNeural">Voz: Francisca (Suave / Narrativa)</option>
@@ -561,7 +561,7 @@ export function App() {
                     <>
                       <label
                         title="Oferta exibida na tela e na thumbnail"
-                        className="neu-flat-sm flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-white/60"
+                        className="neu-flat-sm flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-white/60 min-w-0 max-w-full"
                       >
                         <BadgePercent className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                         <input
@@ -569,13 +569,13 @@ export function App() {
                           onChange={(e) => setOfferInput(e.target.value)}
                           disabled={isGenerating}
                           placeholder="Oferta: R$ 39,90 com cupom"
-                          className="bg-transparent border-0 outline-none text-[11px] font-semibold text-slate-600 placeholder-slate-400 w-40"
+                          className="bg-transparent border-0 outline-none text-[11px] font-semibold text-slate-600 placeholder-slate-400 w-40 min-w-0 max-w-full"
                         />
                       </label>
 
                       <label
                         title="Link do produto na vitrine (TikTok Shop / afiliado)"
-                        className="neu-flat-sm flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-white/60"
+                        className="neu-flat-sm flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-white/60 min-w-0 max-w-full"
                       >
                         <Link2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                         <input
@@ -583,7 +583,7 @@ export function App() {
                           onChange={(e) => setProductUrlInput(e.target.value)}
                           disabled={isGenerating}
                           placeholder="Link do produto (opcional)"
-                          className="bg-transparent border-0 outline-none text-[11px] font-semibold text-slate-600 placeholder-slate-400 w-40"
+                          className="bg-transparent border-0 outline-none text-[11px] font-semibold text-slate-600 placeholder-slate-400 w-40 min-w-0 max-w-full"
                         />
                       </label>
 
@@ -592,7 +592,7 @@ export function App() {
                         onChange={(e) => setHookStyleInput(e.target.value as HookStyle)}
                         disabled={isGenerating}
                         title="Formato do gancho de venda"
-                        className="neu-flat-sm text-[11px] font-semibold text-slate-600 px-2.5 py-1.5 rounded-xl border border-white/60 outline-none cursor-pointer"
+                        className="neu-flat-sm min-w-0 max-w-full text-[11px] font-semibold text-slate-600 px-2.5 py-1.5 rounded-xl border border-white/60 outline-none cursor-pointer"
                       >
                         <option value="problema-solucao">Gancho: Problema → Solução</option>
                         <option value="review">Gancho: Review honesto</option>

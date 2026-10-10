@@ -237,7 +237,7 @@ export function CognitiveMonitor({
                 ? `Monitor cognitivo • ${MODE_LABELS[mode] ?? MODE_LABELS.synthetic}`
                 : 'Pipeline concluído'}
             </span>
-            <div className="mt-0.5 leading-tight">
+            <div className="mt-0.5 leading-tight min-w-0 break-words">
               <ShinyText
                 text={statusMessage}
                 disabled={!active}
@@ -248,7 +248,7 @@ export function CognitiveMonitor({
               />
             </div>
             {activeMicroTask && (
-              <div className="mt-1 flex items-center gap-1.5 min-w-0">
+              <div className="mt-1 flex items-center gap-1.5 min-w-0 break-words">
                 <Activity className="w-3 h-3 text-blue-500 shrink-0" />
                 <ShinyText
                   text={activeMicroTask}
@@ -303,7 +303,7 @@ export function CognitiveMonitor({
             <span
               key={artifact.label}
               title={artifact.label}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-colors ${
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-colors max-w-full ${
                 isCurrent
                   ? 'neu-flat-sm text-blue-600 border-blue-300/60'
                   : done
@@ -350,7 +350,7 @@ export function CognitiveMonitor({
               .map((trace) => (
                 <div
                   key={trace.id}
-                  className="cognitive-feed-item flex items-start gap-2 text-[11px] leading-relaxed"
+                  className="cognitive-feed-item flex items-start gap-2 text-[11px] leading-relaxed min-w-0"
                 >
                   <span className="text-slate-400 font-mono shrink-0">[{trace.timestamp}]</span>
                   <span
@@ -366,13 +366,13 @@ export function CognitiveMonitor({
                     <span className="text-blue-600 font-bold shrink-0">Etapa {trace.step}:</span>
                   )}
                   <span
-                    className={
+                    className={`min-w-0 break-words ${
                       trace.step === -1
                         ? 'text-red-500 font-medium'
                         : trace.source === 'sse'
                           ? 'text-slate-700 font-medium'
                           : 'text-slate-500'
-                    }
+                    }`}
                   >
                     {trace.message}
                   </span>
@@ -443,12 +443,14 @@ export function CognitiveMonitor({
           </div>
           <div className="bg-slate-900 text-slate-200 rounded-xl p-3 font-mono text-[10px] max-h-32 overflow-y-auto space-y-1 select-text shadow-inner">
             {activities.map((log) => (
-              <div key={log.id} className="flex items-start gap-2 leading-relaxed">
+              <div key={log.id} className="flex items-start gap-2 leading-relaxed min-w-0">
                 <span className="text-slate-500 shrink-0">[{log.timestamp}]</span>
                 {log.step > 0 && (
                   <span className="text-blue-400 shrink-0 font-semibold">Etapa {log.step}:</span>
                 )}
-                <span className={log.step === -1 ? 'text-red-400' : 'text-slate-200'}>
+                <span
+                  className={`min-w-0 break-words ${log.step === -1 ? 'text-red-400' : 'text-slate-200'}`}
+                >
                   {log.message}
                 </span>
               </div>

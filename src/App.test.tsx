@@ -106,6 +106,28 @@ describe('App • Estúdio de Criação', () => {
     expect(screen.getByText(/Falha ao processar vídeo/i)).toBeTruthy();
   });
 
+  it('não deixa a barra de controles estourar a lateral da omnibar', async () => {
+    const { container } = render(<App />);
+
+    await click(screen.getByRole('button', { name: /TikTok Shop/ }));
+
+    // main é flex-item: sem min-w-0 o conteúdo largo empurra a página toda
+    const main = container.querySelector('main');
+    expect(main?.className).toContain('min-w-0');
+
+    // cada campo da vitrine encolhe em vez de empurrar o vizinho
+    const offer = screen.getByPlaceholderText(/Oferta:/);
+    expect(offer.className).toContain('min-w-0');
+
+    const field = offer.closest('label');
+    expect(field?.className).toContain('max-w-full');
+
+    // e o grupo que carrega todos os controles quebra linha em vez de transbordar
+    const controls = field?.parentElement;
+    expect(controls?.className).toContain('flex-wrap');
+    expect(controls?.className).toContain('min-w-0');
+  });
+
   it('no modo TikTok Shop real, chama a rota /api/shop com o payload de venda', async () => {
     render(<App />);
 
