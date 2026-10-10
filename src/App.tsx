@@ -1,36 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Sparkles, 
   Calendar as CalendarIcon, 
   Settings2, 
   Video, 
   CheckCircle2, 
-  Clock, 
   Film, 
   Share2, 
   Menu,
   Scissors,
-  Upload
+  Upload,
+  Brain,
+  FlaskConical,
+  ShoppingBag,
+  BadgePercent,
+  Link2
 } from 'lucide-react';
-import type { VideoItem, TabType, StudioMode, Niche } from './types';
+import type { VideoItem, TabType, StudioMode, Niche, HookStyle } from './types';
 import { MOCK_VIDEOS } from './mocks/videos';
-import { generateVideo, clipVideo, checkHealth } from './services/api';
-
-const SYNTHETIC_STEPS = [
-  'Roteirização e Cenas com IA (Gemini / Groq)',
-  'Síntese de Voz e Sincronização (ElevenLabs / Edge-TTS)',
-  'Geração de Imagens Fidedignas (FLUX 1 Schnell)',
-  'Renderização Ken Burns 2.5D Estabilizado (FFmpeg)',
-  'Exportação e Catálogo Final em 9:16'
-];
-
-const CLIPPING_STEPS = [
-  'Extração e Compressão Radical de Áudio (16kHz Mono)',
-  'Análise de Ganchos e Clímax com Gemini Flash',
-  'Corte Sem Perdas (Lossless Stream Copy no FFmpeg)',
-  'Enquadramento 9:16 + Ducking de Trilha Sonora',
-  'Geração de Legendas Dinâmicas e Vídeo Final'
-];
+import { generateVideo, clipVideo, generateShopVideo, checkHealth } from './services/api';
+import { runSimulatedPipeline } from './services/demoPipeline';
+import { ShinyText } from './components/ShinyText';
+import { CognitiveMonitor } from './components/CognitiveMonitor';
+import type { CognitiveActivity } from './components/CognitiveMonitor';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabType>('studio');
@@ -45,6 +37,11 @@ export function App() {
   const [voiceInput, setVoiceInput] = useState('pt-BR-AntonioNeural');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [backgroundAudioFile, setBackgroundAudioFile] = useState<File | null>(null);
+
+  // Vitrine TikTok Shop (modo 'shop'): briefing + oferta + link + estilo de gancho
+  const [offerInput, setOfferInput] = useState('');
+  const [productUrlInput, setProductUrlInput] = useState('');
+  const [hookStyleInput, setHookStyleInput] = useState<HookStyle>('problema-solucao');
 
   // Histórico de mensagens do Copiloto / Diretor de IA (CUI)
   const [chatMessages, setChatMessages] = useState<Array<{
@@ -66,8 +63,10 @@ export function App() {
     }
   ]);
 
-  // Logs ao vivo da esteira de produção
+  // Logs ao vivo da esteira de produção (eventos reais vindos do stream SSE)
   const [productionLogs, setProductionLogs] = useState<Array<{
+    id: string;
+    at: number;
     timestamp: string;
     step: number;
     message: string;
@@ -76,8 +75,38 @@ export function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [statusMessage, setStatusMessage] = useState('Aguardando comando');
+  // Cronometria da corrida atual: alimenta o relógio e o feed do Monitor Cognitivo
+  const [runStartedAt, setRunStartedAt] = useState(0);
+  const [stepStartedAt, setStepStartedAt] = useState(0);
+  const lastStepRef = useRef(0);
   
   const [isSpaceOnline, setIsSpaceOnline] = useState<boolean | null>(null);
+
+  // Modo simulação: esteira local, sem tocar a API. Serve para evoluir o
+  // front-end (Monitor Cognitivo / ShinyText) enquanto o backend engatinha.
+  const [demoMode, setDemoMode] = useState<boolean>(
+    () => import.meta.env.VITE_DEMO_MODE === 'true'
+  );
+  const [isSimulatedRun, setIsSimulatedRun] = useState(false);
+
+  const pushLog = (step: number, message: string) => {
+    setProductionLogs((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${prev.length}-${step}`,
+        at: Date.now(),
+        timestamp: new Date().toLocaleTimeString(),
+        step,
+        message
+      }
+    ]);
+  };
+
+  // Eventos reais do stream no formato consumido pelo Monitor Cognitivo
+  const cognitiveActivities = useMemo<CognitiveActivity[]>(
+    () => productionLogs.map((log) => ({ ...log, source: 'sse' as const })),
+    [productionLogs]
+  );
 
   useEffect(() => {
     const verifyHealth = async () => {
@@ -92,47 +121,89 @@ export function App() {
   const handleStartGeneration = async (customPrompt?: string) => {
     const finalPrompt = customPrompt || referenceInput;
     if (isGenerating) return;
-    if (studioMode === 'synthetic' && !finalPrompt.trim()) return;
+    if ((studioMode === 'synthetic' || studioMode === 'shop') && !finalPrompt.trim()) return;
     if (studioMode === 'clipping' && !selectedFile) return;
 
     // Registra a mensagem do usuário no fluxo CUI
     setChatMessages((prev) => [
       ...prev,
       {
-        id: Date.now().toString(),
+        id: `${Date.now()}-${prev.length}`,
         sender: 'user',
-        text: studioMode === 'synthetic' 
-          ? finalPrompt 
-          : `Extrair melhores momentos em 9:16 do vídeo: ${selectedFile?.name || 'arquivo bruto'}`
+        text:
+          studioMode === 'synthetic'
+            ? finalPrompt
+            : studioMode === 'shop'
+              ? `Criar vídeo de venda para: ${finalPrompt}${
+                  offerInput.trim() ? ` — oferta: ${offerInput.trim()}` : ''
+                }`
+              : `Extrair melhores momentos em 9:16 do vídeo: ${selectedFile?.name || 'arquivo bruto'}`
       }
     ]);
     
     setIsGenerating(true);
     setCurrentStep(1);
-    const initialStatus = studioMode === 'synthetic' ? 'Iniciando geração sintética...' : 'Comprimindo e analisando filme...';
+    const startedAt = new Date().getTime();
+    setRunStartedAt(startedAt);
+    setStepStartedAt(startedAt);
+    lastStepRef.current = 1;
+    setIsSimulatedRun(demoMode);
+    const initialStatus =
+      studioMode === 'synthetic'
+        ? 'Iniciando geração sintética...'
+        : studioMode === 'shop'
+          ? 'Estudando o produto e o ângulo de venda...'
+          : 'Comprimindo e analisando filme...';
     setStatusMessage(initialStatus);
-    setProductionLogs([
-      { timestamp: new Date().toLocaleTimeString(), step: 1, message: initialStatus }
-    ]);
+    setProductionLogs([]);
+    pushLog(1, initialStatus);
+
+    // Callback único para os dois caminhos: API real e simulação local
+    const onPipelineEvent = (step: number, message: string) => {
+      if (lastStepRef.current !== step) {
+        lastStepRef.current = step;
+        setStepStartedAt(new Date().getTime());
+      }
+      setCurrentStep(step);
+      setStatusMessage(message);
+      pushLog(step, message);
+    };
 
     try {
       let newVideo: VideoItem;
 
-      if (studioMode === 'synthetic') {
+      if (demoMode) {
+        newVideo = await runSimulatedPipeline(
+          {
+            mode: studioMode,
+            prompt: finalPrompt,
+            niche: nicheInput,
+            fileName: selectedFile?.name,
+            offer: offerInput,
+            hookStyle: hookStyleInput
+          },
+          onPipelineEvent
+        );
+      } else if (studioMode === 'shop') {
+        newVideo = await generateShopVideo(
+          {
+            product: finalPrompt,
+            offer: offerInput.trim() || undefined,
+            productUrl: productUrlInput.trim() || undefined,
+            hookStyle: hookStyleInput,
+            voice: voiceInput,
+            niche: nicheInput
+          },
+          onPipelineEvent
+        );
+      } else if (studioMode === 'synthetic') {
         newVideo = await generateVideo(
           {
             referenceText: finalPrompt,
             voice: voiceInput,
             niche: nicheInput
           },
-          (step, message) => {
-            setCurrentStep(step);
-            setStatusMessage(message);
-            setProductionLogs((prev) => [
-              ...prev,
-              { timestamp: new Date().toLocaleTimeString(), step, message }
-            ]);
-          }
+          onPipelineEvent
         );
       } else {
         newVideo = await clipVideo(
@@ -141,14 +212,7 @@ export function App() {
             audioTrack: backgroundAudioFile || undefined,
             niche: nicheInput
           },
-          (step, message) => {
-            setCurrentStep(step);
-            setStatusMessage(message);
-            setProductionLogs((prev) => [
-              ...prev,
-              { timestamp: new Date().toLocaleTimeString(), step, message }
-            ]);
-          }
+          onPipelineEvent
         );
       }
 
@@ -159,33 +223,43 @@ export function App() {
         setReferenceInput('');
         setSelectedFile(null);
         setBackgroundAudioFile(null);
-        setStatusMessage('Aguardando comando');
+        setOfferInput('');
+        setProductUrlInput('');
+        setStatusMessage(
+          studioMode === 'synthetic'
+            ? 'Vídeo renderizado e catalogado'
+            : studioMode === 'shop'
+              ? 'Vídeo de venda pronto para a vitrine'
+              : 'Short recortado e catalogado'
+        );
         setChatMessages((prev) => [
           ...prev,
           {
-            id: Date.now().toString(),
+            id: `${Date.now()}-${prev.length}`,
             sender: 'ai',
-            text: `🎬 Vídeo "${newVideo.title}" (${newVideo.referenceText}) gerado com sucesso! Já está disponível na Biblioteca e no Calendário.`
+            text: `${demoMode ? '🧪 [Simulação local] ' : '🎬 '}Vídeo "${newVideo.title}" (${newVideo.referenceText}) gerado com sucesso! Já está disponível na Biblioteca e no Calendário.`
           }
         ]);
         setActiveTab('calendar');
       }, 1200);
 
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
-      const errMsg = error.message || 'Erro durante o processamento.';
+      const errMsg =
+        error instanceof Error ? error.message : 'Erro durante o processamento.';
       alert(errMsg);
       setStatusMessage('Falha na execução');
-      setProductionLogs((prev) => [
-        ...prev,
-        { timestamp: new Date().toLocaleTimeString(), step: -1, message: `Erro: ${errMsg}` }
-      ]);
+      pushLog(-1, `Erro: ${errMsg}`);
       setChatMessages((prev) => [
         ...prev,
         {
-          id: Date.now().toString(),
+          id: `${Date.now()}-${prev.length}`,
           sender: 'ai',
-          text: `❌ Falha ao processar vídeo: ${errMsg}`
+          text: `❌ Falha ao processar vídeo: ${errMsg}${
+            !demoMode
+              ? ' — se o lumina-backend ainda não estiver de pé, ative o modo simulação para visualizar a esteira.'
+              : ''
+          }`
         }
       ]);
       setIsGenerating(false);
@@ -202,7 +276,7 @@ export function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#f0f4f8] text-slate-700 flex antialiased">
+    <div className="min-h-screen bg-[#f0f4f8] text-slate-700 flex antialiased overflow-x-clip">
       {/* SIDEBAR NEUMÓRFICA SOFT UI */}
       <aside className={`bg-[#f0f4f8] border-r border-slate-200/60 shadow-[4px_0_16px_#d8e2ee] flex flex-col sticky top-0 h-screen transition-all duration-300 z-40 ${isSidebarOpen ? 'w-64' : 'w-20'}`}>
         {/* Brand / Logo */}
@@ -269,24 +343,24 @@ export function App() {
       </aside>
 
       {/* Área Central / Conteúdo das Abas */}
-      <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
+      <main className="flex-1 min-w-0 p-6 max-w-7xl mx-auto w-full">
         {/* ABA 1: LUI (Language User Interface) - Prompt-Driven Studio */}
         {activeTab === 'studio' && (
           <section className="neu-flat rounded-3xl p-6 border border-white/90 flex flex-col h-[calc(100vh-6.5rem)] max-h-[880px]">
             {/* Header da LUI */}
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-200/60 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-2xl neu-blue-accent flex items-center justify-center text-white font-bold text-sm shadow-md">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-200/60 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 shrink-0 rounded-2xl neu-blue-accent flex items-center justify-center text-white font-bold text-sm shadow-md">
                   <Sparkles className="w-4 h-4" />
                 </div>
                 <div>
                   <h2 className="text-sm font-bold text-slate-800">Lumina Copilot • Prompt-to-Video</h2>
-                  <p className="text-[11px] text-slate-500">Interface em linguagem natural para geração e recorte por IA.</p>
+                  <p className="text-[11px] text-slate-500">Interface em linguagem natural para gerar, recortar e vender por IA.</p>
                 </div>
               </div>
 
               {/* Seletor Rápido de Modo */}
-              <div className="neu-pressed p-1 rounded-2xl flex items-center gap-1 border border-white/70">
+              <div className="neu-pressed p-1 rounded-2xl flex flex-wrap items-center gap-1 border border-white/70 max-w-full">
                 <button
                   type="button"
                   onClick={() => setStudioMode('synthetic')}
@@ -311,6 +385,18 @@ export function App() {
                   <Scissors className="w-3.5 h-3.5" />
                   Clipping Inteligente
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setStudioMode('shop')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    studioMode === 'shop'
+                      ? 'neu-flat text-blue-600 shadow-[2px_2px_5px_#cad6e4,-2px_-2px_5px_#ffffff]'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  TikTok Shop
+                </button>
               </div>
             </div>
 
@@ -333,8 +419,8 @@ export function App() {
                     <div
                       className={`p-3.5 rounded-2xl text-xs leading-relaxed ${
                         msg.sender === 'user'
-                          ? 'neu-blue-accent text-white font-medium rounded-tr-none'
-                          : 'neu-pressed text-slate-700 rounded-tl-none border border-white/60'
+                          ? 'neu-blue-accent text-white font-medium rounded-tr-none break-words'
+                          : 'neu-pressed text-slate-700 rounded-tl-none border border-white/60 break-words'
                       }`}
                     >
                       {msg.text}
@@ -362,97 +448,18 @@ export function App() {
                 </div>
               ))}
 
-              {/* Status ao Vivo do Pipeline e Logs Embutidos na Conversa */}
+              {/* Monitor Cognitivo: cérebro pulsante + ShinyText + feed do agente */}
               {(isGenerating || productionLogs.length > 0) && (
-                <div className="neu-pressed rounded-2xl p-4 border border-white/80 space-y-3.5">
-                  <div className="flex items-center justify-between text-xs font-bold text-blue-600">
-                    <span className="flex items-center gap-2">
-                      {isGenerating ? (
-                        <Clock className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                      )}
-                      {statusMessage}
-                    </span>
-                    <span className="neu-flat-sm text-[10px] px-2.5 py-1 rounded-md text-slate-600 border border-white/60 font-semibold">
-                      {isGenerating ? `Etapa ${currentStep} de 5` : 'Concluído'}
-                    </span>
-                  </div>
-
-                  {/* Barra de Progresso */}
-                  <div className="w-full neu-flat-sm h-2 rounded-full overflow-hidden p-0.5">
-                    <div
-                      className="bg-blue-500 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${isGenerating ? (currentStep / 5) * 100 : 100}%` }}
-                    />
-                  </div>
-
-                  {/* Lista das 5 Etapas da Esteira de Produção */}
-                  <div className="pt-2 border-t border-slate-200/50">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                      Esteira: {studioMode === 'synthetic' ? 'Pipeline Sintético' : 'Motor de Cortes (Long-to-Shorts)'}
-                    </span>
-                    <ul className="space-y-2">
-                      {(studioMode === 'synthetic' ? SYNTHETIC_STEPS : CLIPPING_STEPS).map((stepLabel, idx) => {
-                        const stepNum = idx + 1;
-                        const isActive = isGenerating && currentStep === stepNum;
-                        const isPast = !isGenerating || currentStep > stepNum;
-                        
-                        return (
-                          <li
-                            key={stepNum}
-                            className={`flex items-center gap-2.5 text-xs transition-colors ${
-                              isActive
-                                ? 'text-blue-600 font-bold'
-                                : isPast
-                                ? 'text-emerald-600 font-medium'
-                                : 'text-slate-400'
-                            }`}
-                          >
-                            {isPast ? (
-                              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                            ) : (
-                              <span
-                                className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] shrink-0 transition-all ${
-                                  isActive
-                                    ? 'neu-pressed text-blue-600 font-bold border border-blue-400/40'
-                                    : 'neu-flat-sm text-slate-400'
-                                }`}
-                              >
-                                {stepNum}
-                              </span>
-                            )}
-                            <span className={isActive ? 'font-semibold' : ''}>{stepLabel}</span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-
-                  {/* Terminal de Logs ao Vivo da Geração */}
-                  {productionLogs.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-slate-200/50">
-                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                        <span className="flex items-center gap-1.5">
-                          <span className={`w-1.5 h-1.5 rounded-full ${isGenerating ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`} />
-                          Logs de Produção (SSE Stream)
-                        </span>
-                        <span className="text-[9px] font-normal text-slate-400 lowercase">{productionLogs.length} eventos</span>
-                      </div>
-                      <div className="bg-slate-900 text-slate-200 rounded-xl p-3 font-mono text-[10px] max-h-32 overflow-y-auto space-y-1 select-text shadow-inner">
-                        {productionLogs.map((log, i) => (
-                          <div key={i} className="flex items-start gap-2 leading-relaxed">
-                            <span className="text-slate-500 shrink-0">[{log.timestamp}]</span>
-                            {log.step > 0 && (
-                              <span className="text-blue-400 shrink-0 font-semibold">Etapa {log.step}:</span>
-                            )}
-                            <span className={log.step === -1 ? 'text-red-400' : 'text-slate-200'}>{log.message}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <CognitiveMonitor
+                  active={isGenerating}
+                  mode={studioMode}
+                  currentStep={currentStep}
+                  statusMessage={statusMessage}
+                  activities={cognitiveActivities}
+                  startedAt={runStartedAt}
+                  stepStartedAt={stepStartedAt}
+                  simulation={isSimulatedRun}
+                />
               )}
             </div>
 
@@ -460,8 +467,8 @@ export function App() {
             <div className="shrink-0 neu-pressed rounded-3xl p-3 border border-white/80 space-y-2.5">
               {/* Arquivo Anexado (Se houver) */}
               {selectedFile && (
-                <div className="flex items-center justify-between neu-flat-sm px-3 py-1.5 rounded-xl text-xs">
-                  <span className="font-semibold text-slate-700 truncate max-w-xs">
+                <div className="flex items-center justify-between gap-2 neu-flat-sm px-3 py-1.5 rounded-xl text-xs min-w-0">
+                  <span className="font-semibold text-slate-700 truncate max-w-full min-w-0">
                     📹 {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(1)} MB)
                   </span>
                   <button
@@ -489,14 +496,16 @@ export function App() {
                 placeholder={
                   studioMode === 'synthetic'
                     ? "Descreva seu vídeo... (Ex: As Pirâmides de Gizé, explorando a época e os mistérios de construção)"
-                    : "Digite instruções adicionais para o recorte ou anexe o vídeo abaixo..."
+                    : studioMode === 'shop'
+                      ? "Descreva o produto... (Ex: Garrafa térmica 1L que gela em 6h, público que treina ao ar livre)"
+                      : "Digite instruções adicionais para o recorte ou anexe o vídeo abaixo..."
                 }
                 className="w-full bg-transparent border-0 outline-none text-xs text-slate-800 placeholder-slate-400 resize-none px-1"
               />
 
               {/* Barra de Ações e Configurações Inline da Omnibar */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200/50">
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5 min-w-0 max-w-full">
                   {/* Botão de Anexo para Vídeo / Áudio (Modo Clipping) */}
                   <label
                     title="Anexar vídeo para corte"
@@ -523,7 +532,7 @@ export function App() {
                     value={nicheInput}
                     onChange={(e) => setNicheInput(e.target.value as Niche)}
                     disabled={isGenerating}
-                    className="neu-flat-sm text-[11px] font-semibold text-slate-600 px-2.5 py-1.5 rounded-xl border border-white/60 outline-none cursor-pointer"
+                    className="neu-flat-sm min-w-0 max-w-full text-[11px] font-semibold text-slate-600 px-2.5 py-1.5 rounded-xl border border-white/60 outline-none cursor-pointer"
                   >
                     <option value="universal">Nicho: Universal / Geral</option>
                     <option value="historia">Nicho: História & Civilizações</option>
@@ -533,19 +542,86 @@ export function App() {
                     <option value="biblico">Nicho: Devocional Bíblico</option>
                   </select>
 
-                  {/* Chip de Voz (Para Modo Sintético) */}
-                  {studioMode === 'synthetic' && (
+                  {/* Chip de Voz (Modo Sintético e Vitrine) */}
+                  {(studioMode === 'synthetic' || studioMode === 'shop') && (
                     <select
                       value={voiceInput}
                       onChange={(e) => setVoiceInput(e.target.value)}
                       disabled={isGenerating}
-                      className="neu-flat-sm text-[11px] font-semibold text-slate-600 px-2.5 py-1.5 rounded-xl border border-white/60 outline-none cursor-pointer"
+                      className="neu-flat-sm min-w-0 max-w-full text-[11px] font-semibold text-slate-600 px-2.5 py-1.5 rounded-xl border border-white/60 outline-none cursor-pointer"
                     >
                       <option value="pt-BR-AntonioNeural">Voz: Antônio (Grave / Sóbrio)</option>
                       <option value="pt-BR-FranciscaNeural">Voz: Francisca (Suave / Narrativa)</option>
                       <option value="pt-BR-ThalitaNeural">Voz: Thalita (Dinâmica / Jovem)</option>
                     </select>
                   )}
+
+                  {/* Configuração da Vitrine (Modo TikTok Shop) */}
+                  {studioMode === 'shop' && (
+                    <>
+                      <label
+                        title="Oferta exibida na tela e na thumbnail"
+                        className="neu-flat-sm flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-white/60 min-w-0 max-w-full"
+                      >
+                        <BadgePercent className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <input
+                          value={offerInput}
+                          onChange={(e) => setOfferInput(e.target.value)}
+                          disabled={isGenerating}
+                          placeholder="Oferta: R$ 39,90 com cupom"
+                          className="bg-transparent border-0 outline-none text-[11px] font-semibold text-slate-600 placeholder-slate-400 w-40 min-w-0 max-w-full"
+                        />
+                      </label>
+
+                      <label
+                        title="Link do produto na vitrine (TikTok Shop / afiliado)"
+                        className="neu-flat-sm flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-white/60 min-w-0 max-w-full"
+                      >
+                        <Link2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <input
+                          value={productUrlInput}
+                          onChange={(e) => setProductUrlInput(e.target.value)}
+                          disabled={isGenerating}
+                          placeholder="Link do produto (opcional)"
+                          className="bg-transparent border-0 outline-none text-[11px] font-semibold text-slate-600 placeholder-slate-400 w-40 min-w-0 max-w-full"
+                        />
+                      </label>
+
+                      <select
+                        value={hookStyleInput}
+                        onChange={(e) => setHookStyleInput(e.target.value as HookStyle)}
+                        disabled={isGenerating}
+                        title="Formato do gancho de venda"
+                        className="neu-flat-sm min-w-0 max-w-full text-[11px] font-semibold text-slate-600 px-2.5 py-1.5 rounded-xl border border-white/60 outline-none cursor-pointer"
+                      >
+                        <option value="problema-solucao">Gancho: Problema → Solução</option>
+                        <option value="review">Gancho: Review honesto</option>
+                        <option value="antes-depois">Gancho: Antes / Depois</option>
+                        <option value="unboxing">Gancho: Unboxing</option>
+                        <option value="tres-motivos">Gancho: 3 motivos para comprar</option>
+                      </select>
+                    </>
+                  )}
+
+                  {/* Modo Simulação — esteira local, não chama o lumina-backend */}
+                  <button
+                    type="button"
+                    onClick={() => setDemoMode((prev) => !prev)}
+                    disabled={isGenerating}
+                    title={
+                      demoMode
+                        ? 'Simulação ATIVA: a esteira roda localmente, sem chamar a API. Desligue para usar o lumina-backend.'
+                        : 'Ative para visualizar a esteira e o Monitor Cognitivo mesmo com o lumina-backend offline.'
+                    }
+                    className={`text-[11px] font-semibold px-2.5 py-1.5 rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${
+                      demoMode
+                        ? 'neu-pressed text-amber-600 border-amber-300/60'
+                        : 'neu-flat-sm text-slate-500 border-white/60 hover:text-blue-600'
+                    }`}
+                  >
+                    <FlaskConical className="w-3.5 h-3.5" />
+                    {demoMode ? 'Simulação: on' : 'Simulação: off'}
+                  </button>
                 </div>
 
                 {/* Botão de Ação / Envio da Omnibar */}
@@ -554,14 +630,22 @@ export function App() {
                   onClick={() => handleStartGeneration()}
                   disabled={
                     isGenerating ||
-                    (studioMode === 'synthetic' ? !referenceInput.trim() : !selectedFile)
+                    (studioMode === 'clipping'
+                      ? !selectedFile
+                      : !referenceInput.trim())
                   }
                   className="neu-blue-accent px-4 py-2 rounded-2xl text-white font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-md"
                 >
                   {isGenerating ? (
                     <>
-                      <Clock className="w-3.5 h-3.5 animate-spin" />
-                      Gerando...
+                      <Brain className="w-3.5 h-3.5 animate-pulse" />
+                      <ShinyText
+                        text={demoMode ? 'Simulando esteira…' : 'Agente trabalhando…'}
+                        color="#ffffff"
+                        shineColor="#bfdbfe"
+                        speed={1.8}
+                        className="text-xs"
+                      />
                     </>
                   ) : (
                     <>
@@ -578,8 +662,8 @@ export function App() {
         {/* ABA 2: Calendário de Postagens (Estilo Notion) */}
         {activeTab === 'calendar' && (
           <section className="neu-flat rounded-2xl p-6 border border-white/80">
-            <div className="flex items-center justify-between mb-6">
-              <div>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+              <div className="min-w-0">
                 <h2 className="text-base font-bold text-slate-800">Cronograma de Conteúdo</h2>
                 <p className="text-xs text-slate-500">Vídeos sincronizados e prontos para distribuição.</p>
               </div>
@@ -626,8 +710,8 @@ export function App() {
                     </p>
 
                     {/* Badges de Publicação */}
-                    <div className="flex items-center justify-between pt-2.5 border-t border-slate-200/60 text-xs">
-                      <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-slate-200/60 text-xs">
+                      <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                         {vid.publications.map((pub) => (
                           <span
                             key={pub.platform}
@@ -657,8 +741,8 @@ export function App() {
         {/* ABA: Biblioteca de Vídeos */}
         {activeTab === 'library' && (
           <section className="neu-flat rounded-2xl p-6 border border-white/80 overflow-hidden flex flex-col h-full max-h-[80vh]">
-            <div className="flex items-center justify-between mb-5 shrink-0">
-              <div>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-5 shrink-0">
+              <div className="min-w-0">
                 <h2 className="text-base font-bold text-slate-800">Biblioteca Completa</h2>
                 <p className="text-xs text-slate-500">Todos os vídeos já gerados e armazenados.</p>
               </div>
@@ -726,8 +810,8 @@ export function App() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="p-5 rounded-2xl neu-flat border border-white/80">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-10 rounded-xl neu-flat-sm flex items-center justify-center">
                       <svg className="w-5 h-5 text-red-500" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
@@ -753,8 +837,8 @@ export function App() {
               </div>
 
               <div className="p-5 rounded-2xl neu-flat border border-white/80">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-10 rounded-xl neu-flat-sm flex items-center justify-center">
                       <svg className="w-5 h-5 text-cyan-500" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.01.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93v8.12c-.01 2.64-1.12 5.25-3.1 7.02-2.12 1.9-5.18 2.63-8.01 1.96-2.88-.68-5.32-2.85-6.3-5.63-1.01-2.91-.32-6.27 1.83-8.52 2.02-2.11 5.06-3.08 7.89-2.52v4.06c-1.18-.32-2.48-.12-3.48.58-.96.67-1.56 1.8-1.59 2.99-.02 1.19.53 2.34 1.45 3.05 1.05.8 2.51.98 3.75.52 1.25-.47 2.14-1.62 2.29-2.92.1-1.02.04-2.05.04-3.07V.02z"/>
@@ -837,8 +921,8 @@ export function App() {
             {/* Metadados e Ações */}
             <div className="w-full md:w-7/12 p-6 flex flex-col justify-between space-y-4">
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold px-3 py-1 rounded-full neu-flat-sm text-blue-600">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold px-3 py-1 rounded-full neu-flat-sm text-blue-600 min-w-0 truncate max-w-[70%]">
                     {selectedVideo.referenceText}
                   </span>
                   <button

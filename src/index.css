@@ -36,3 +36,76 @@ body {
   background: linear-gradient(135deg, #3b82f6, #2563eb);
   box-shadow: 4px 4px 10px #cad7e7, -4px -4px 10px #ffffff, 0 0 14px rgba(59, 130, 246, 0.35);
 }
+
+/* Shiny Text — varredura de brilho usada pelo componente ShinyText */
+@keyframes shiny-sweep {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* Monitor Cognitivo — halo azul respirando em volta do cérebro pulsante */
+@keyframes cognitive-halo {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(59, 130, 246, 0.28),
+      3px 3px 8px #d1dce8,
+      -3px -3px 8px #ffffff;
+  }
+  50% {
+    box-shadow:
+      0 0 0 7px rgba(59, 130, 246, 0.06),
+      3px 3px 8px #d1dce8,
+      -3px -3px 8px #ffffff;
+  }
+}
+
+.neu-cognitive {
+  background: #f0f4f8;
+  animation: cognitive-halo 2.4s ease-in-out infinite;
+}
+
+/* Entrada suave de cada linha do feed de atividade cognitiva */
+@keyframes cognitive-feed-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cognitive-feed-item {
+  animation: cognitive-feed-in 0.32s ease-out both;
+}
+
+/* Barra de progresso com brilho percorrendo o preenchimento */
+@keyframes cognitive-bar-sheen {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+.cognitive-bar-sheen {
+  animation: cognitive-bar-sheen 1.6s ease-in-out infinite;
+}
+
+/* Acessibilidade: respeita quem pediu menos movimento no sistema */
+@media (prefers-reduced-motion: reduce) {
+  .neu-cognitive,
+  .cognitive-feed-item,
+  .cognitive-bar-sheen,
+  .animate-pulse,
+  .animate-spin {
+    animation: none !important;
+  }
+}
