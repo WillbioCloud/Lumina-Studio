@@ -662,8 +662,8 @@ export function App() {
         {/* ABA 2: Calendário de Postagens (Estilo Notion) */}
         {activeTab === 'calendar' && (
           <section className="neu-flat rounded-2xl p-6 border border-white/80">
-            <div className="flex items-center justify-between mb-6">
-              <div>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+              <div className="min-w-0">
                 <h2 className="text-base font-bold text-slate-800">Cronograma de Conteúdo</h2>
                 <p className="text-xs text-slate-500">Vídeos sincronizados e prontos para distribuição.</p>
               </div>
@@ -710,8 +710,8 @@ export function App() {
                     </p>
 
                     {/* Badges de Publicação */}
-                    <div className="flex items-center justify-between pt-2.5 border-t border-slate-200/60 text-xs">
-                      <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-slate-200/60 text-xs">
+                      <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                         {vid.publications.map((pub) => (
                           <span
                             key={pub.platform}
@@ -741,8 +741,8 @@ export function App() {
         {/* ABA: Biblioteca de Vídeos */}
         {activeTab === 'library' && (
           <section className="neu-flat rounded-2xl p-6 border border-white/80 overflow-hidden flex flex-col h-full max-h-[80vh]">
-            <div className="flex items-center justify-between mb-5 shrink-0">
-              <div>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-5 shrink-0">
+              <div className="min-w-0">
                 <h2 className="text-base font-bold text-slate-800">Biblioteca Completa</h2>
                 <p className="text-xs text-slate-500">Todos os vídeos já gerados e armazenados.</p>
               </div>
@@ -810,8 +810,8 @@ export function App() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="p-5 rounded-2xl neu-flat border border-white/80">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-10 rounded-xl neu-flat-sm flex items-center justify-center">
                       <svg className="w-5 h-5 text-red-500" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
@@ -837,8 +837,8 @@ export function App() {
               </div>
 
               <div className="p-5 rounded-2xl neu-flat border border-white/80">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-10 rounded-xl neu-flat-sm flex items-center justify-center">
                       <svg className="w-5 h-5 text-cyan-500" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.01.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93v8.12c-.01 2.64-1.12 5.25-3.1 7.02-2.12 1.9-5.18 2.63-8.01 1.96-2.88-.68-5.32-2.85-6.3-5.63-1.01-2.91-.32-6.27 1.83-8.52 2.02-2.11 5.06-3.08 7.89-2.52v4.06c-1.18-.32-2.48-.12-3.48.58-.96.67-1.56 1.8-1.59 2.99-.02 1.19.53 2.34 1.45 3.05 1.05.8 2.51.98 3.75.52 1.25-.47 2.14-1.62 2.29-2.92.1-1.02.04-2.05.04-3.07V.02z"/>
@@ -921,8 +921,8 @@ export function App() {
             {/* Metadados e Ações */}
             <div className="w-full md:w-7/12 p-6 flex flex-col justify-between space-y-4">
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold px-3 py-1 rounded-full neu-flat-sm text-blue-600">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold px-3 py-1 rounded-full neu-flat-sm text-blue-600 min-w-0 truncate max-w-[70%]">
                     {selectedVideo.referenceText}
                   </span>
                   <button
