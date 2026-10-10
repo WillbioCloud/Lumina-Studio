@@ -1,36 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Sparkles, 
   Calendar as CalendarIcon, 
   Settings2, 
   Video, 
   CheckCircle2, 
-  Clock, 
   Film, 
   Share2, 
   Menu,
   Scissors,
-  Upload
+  Upload,
+  Brain,
+  FlaskConical,
+  ShoppingBag,
+  BadgePercent,
+  Link2
 } from 'lucide-react';
-import type { VideoItem, TabType, StudioMode, Niche } from './types';
+import type { VideoItem, TabType, StudioMode, Niche, HookStyle } from './types';
 import { MOCK_VIDEOS } from './mocks/videos';
-import { generateVideo, clipVideo, checkHealth } from './services/api';
-
-const SYNTHETIC_STEPS = [
-  'Roteirização e Cenas com IA (Gemini / Groq)',
-  'Síntese de Voz e Sincronização (ElevenLabs / Edge-TTS)',
-  'Geração de Imagens Fidedignas (FLUX 1 Schnell)',
-  'Renderização Ken Burns 2.5D Estabilizado (FFmpeg)',
-  'Exportação e Catálogo Final em 9:16'
-];
-
-const CLIPPING_STEPS = [
-  'Extração e Compressão Radical de Áudio (16kHz Mono)',
-  'Análise de Ganchos e Clímax com Gemini Flash',
-  'Corte Sem Perdas (Lossless Stream Copy no FFmpeg)',
-  'Enquadramento 9:16 + Ducking de Trilha Sonora',
-  'Geração de Legendas Dinâmicas e Vídeo Final'
-];
+import { generateVideo, clipVideo, generateShopVideo, checkHealth } from './services/api';
+import { runSimulatedPipeline } from './services/demoPipeline';
+import { ShinyText } from './components/ShinyText';
+import { CognitiveMonitor } from './components/CognitiveMonitor';
+import type { CognitiveActivity } from './components/CognitiveMonitor';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabType>('studio');
@@ -45,6 +37,11 @@ export function App() {
   const [voiceInput, setVoiceInput] = useState('pt-BR-AntonioNeural');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [backgroundAudioFile, setBackgroundAudioFile] = useState<File | null>(null);
+
+  // Vitrine TikTok Shop (modo 'shop'): briefing + oferta + link + estilo de gancho
+  const [offerInput, setOfferInput] = useState('');
+  const [productUrlInput, setProductUrlInput] = useState('');
+  const [hookStyleInput, setHookStyleInput] = useState<HookStyle>('problema-solucao');
 
   // Histórico de mensagens do Copiloto / Diretor de IA (CUI)
   const [chatMessages, setChatMessages] = useState<Array<{
@@ -66,8 +63,10 @@ export function App() {
     }
   ]);
 
-  // Logs ao vivo da esteira de produção
+  // Logs ao vivo da esteira de produção (eventos reais vindos do stream SSE)
   const [productionLogs, setProductionLogs] = useState<Array<{
+    id: string;
+    at: number;
     timestamp: string;
     step: number;
     message: string;
@@ -76,8 +75,38 @@ export function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [statusMessage, setStatusMessage] = useState('Aguardando comando');
+  // Cronometria da corrida atual: alimenta o relógio e o feed do Monitor Cognitivo
+  const [runStartedAt, setRunStartedAt] = useState(0);
+  const [stepStartedAt, setStepStartedAt] = useState(0);
+  const lastStepRef = useRef(0);
   
   const [isSpaceOnline, setIsSpaceOnline] = useState<boolean | null>(null);
+
+  // Modo simulação: esteira local, sem tocar a API. Serve para evoluir o
+  // front-end (Monitor Cognitivo / ShinyText) enquanto o backend engatinha.
+  const [demoMode, setDemoMode] = useState<boolean>(
+    () => import.meta.env.VITE_DEMO_MODE === 'true'
+  );
+  const [isSimulatedRun, setIsSimulatedRun] = useState(false);
+
+  const pushLog = (step: number, message: string) => {
+    setProductionLogs((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${prev.length}-${step}`,
+        at: Date.now(),
+        timestamp: new Date().toLocaleTimeString(),
+        step,
+        message
+      }
+    ]);
+  };
+
+  // Eventos reais do stream no formato consumido pelo Monitor Cognitivo
+  const cognitiveActivities = useMemo<CognitiveActivity[]>(
+    () => productionLogs.map((log) => ({ ...log, source: 'sse' as const })),
+    [productionLogs]
+  );
 
   useEffect(() => {
     const verifyHealth = async () => {
@@ -92,47 +121,89 @@ export function App() {
   const handleStartGeneration = async (customPrompt?: string) => {
     const finalPrompt = customPrompt || referenceInput;
     if (isGenerating) return;
-    if (studioMode === 'synthetic' && !finalPrompt.trim()) return;
+    if ((studioMode === 'synthetic' || studioMode === 'shop') && !finalPrompt.trim()) return;
     if (studioMode === 'clipping' && !selectedFile) return;
 
     // Registra a mensagem do usuário no fluxo CUI
     setChatMessages((prev) => [
       ...prev,
       {
-        id: Date.now().toString(),
+        id: `${Date.now()}-${prev.length}`,
         sender: 'user',
-        text: studioMode === 'synthetic' 
-          ? finalPrompt 
-          : `Extrair melhores momentos em 9:16 do vídeo: ${selectedFile?.name || 'arquivo bruto'}`
+        text:
+          studioMode === 'synthetic'
+            ? finalPrompt
+            : studioMode === 'shop'
+              ? `Criar vídeo de venda para: ${finalPrompt}${
+                  offerInput.trim() ? ` — oferta: ${offerInput.trim()}` : ''
+                }`
+              : `Extrair melhores momentos em 9:16 do vídeo: ${selectedFile?.name || 'arquivo bruto'}`
       }
     ]);
     
     setIsGenerating(true);
     setCurrentStep(1);
-    const initialStatus = studioMode === 'synthetic' ? 'Iniciando geração sintética...' : 'Comprimindo e analisando filme...';
+    const startedAt = new Date().getTime();
+    setRunStartedAt(startedAt);
+    setStepStartedAt(startedAt);
+    lastStepRef.current = 1;
+    setIsSimulatedRun(demoMode);
+    const initialStatus =
+      studioMode === 'synthetic'
+        ? 'Iniciando geração sintética...'
+        : studioMode === 'shop'
+          ? 'Estudando o produto e o ângulo de venda...'
+          : 'Comprimindo e analisando filme...';
     setStatusMessage(initialStatus);
-    setProductionLogs([
-      { timestamp: new Date().toLocaleTimeString(), step: 1, message: initialStatus }
-    ]);
+    setProductionLogs([]);
+    pushLog(1, initialStatus);
+
+    // Callback único para os dois caminhos: API real e simulação local
+    const onPipelineEvent = (step: number, message: string) => {
+      if (lastStepRef.current !== step) {
+        lastStepRef.current = step;
+        setStepStartedAt(new Date().getTime());
+      }
+      setCurrentStep(step);
+      setStatusMessage(message);
+      pushLog(step, message);
+    };
 
     try {
       let newVideo: VideoItem;
 
-      if (studioMode === 'synthetic') {
+      if (demoMode) {
+        newVideo = await runSimulatedPipeline(
+          {
+            mode: studioMode,
+            prompt: finalPrompt,
+            niche: nicheInput,
+            fileName: selectedFile?.name,
+            offer: offerInput,
+            hookStyle: hookStyleInput
+          },
+          onPipelineEvent
+        );
+      } else if (studioMode === 'shop') {
+        newVideo = await generateShopVideo(
+          {
+            product: finalPrompt,
+            offer: offerInput.trim() || undefined,
+            productUrl: productUrlInput.trim() || undefined,
+            hookStyle: hookStyleInput,
+            voice: voiceInput,
+            niche: nicheInput
+          },
+          onPipelineEvent
+        );
+      } else if (studioMode === 'synthetic') {
         newVideo = await generateVideo(
           {
             referenceText: finalPrompt,
             voice: voiceInput,
             niche: nicheInput
           },
-          (step, message) => {
-            setCurrentStep(step);
-            setStatusMessage(message);
-            setProductionLogs((prev) => [
-              ...prev,
-              { timestamp: new Date().toLocaleTimeString(), step, message }
-            ]);
-          }
+          onPipelineEvent
         );
       } else {
         newVideo = await clipVideo(
@@ -141,14 +212,7 @@ export function App() {
             audioTrack: backgroundAudioFile || undefined,
             niche: nicheInput
           },
-          (step, message) => {
-            setCurrentStep(step);
-            setStatusMessage(message);
-            setProductionLogs((prev) => [
-              ...prev,
-              { timestamp: new Date().toLocaleTimeString(), step, message }
-            ]);
-          }
+          onPipelineEvent
         );
       }
 
@@ -159,33 +223,43 @@ export function App() {
         setReferenceInput('');
         setSelectedFile(null);
         setBackgroundAudioFile(null);
-        setStatusMessage('Aguardando comando');
+        setOfferInput('');
+        setProductUrlInput('');
+        setStatusMessage(
+          studioMode === 'synthetic'
+            ? 'Vídeo renderizado e catalogado'
+            : studioMode === 'shop'
+              ? 'Vídeo de venda pronto para a vitrine'
+              : 'Short recortado e catalogado'
+        );
         setChatMessages((prev) => [
           ...prev,
           {
-            id: Date.now().toString(),
+            id: `${Date.now()}-${prev.length}`,
             sender: 'ai',
-            text: `🎬 Vídeo "${newVideo.title}" (${newVideo.referenceText}) gerado com sucesso! Já está disponível na Biblioteca e no Calendário.`
+            text: `${demoMode ? '🧪 [Simulação local] ' : '🎬 '}Vídeo "${newVideo.title}" (${newVideo.referenceText}) gerado com sucesso! Já está disponível na Biblioteca e no Calendário.`
           }
         ]);
         setActiveTab('calendar');
       }, 1200);
 
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
-      const errMsg = error.message || 'Erro durante o processamento.';
+      const errMsg =
+        error instanceof Error ? error.message : 'Erro durante o processamento.';
       alert(errMsg);
       setStatusMessage('Falha na execução');
-      setProductionLogs((prev) => [
-        ...prev,
-        { timestamp: new Date().toLocaleTimeString(), step: -1, message: `Erro: ${errMsg}` }
-      ]);
+      pushLog(-1, `Erro: ${errMsg}`);
       setChatMessages((prev) => [
         ...prev,
         {
-          id: Date.now().toString(),
+          id: `${Date.now()}-${prev.length}`,
           sender: 'ai',
-          text: `❌ Falha ao processar vídeo: ${errMsg}`
+          text: `❌ Falha ao processar vídeo: ${errMsg}${
+            !demoMode
+              ? ' — se o lumina-backend ainda não estiver de pé, ative o modo simulação para visualizar a esteira.'
+              : ''
+          }`
         }
       ]);
       setIsGenerating(false);
@@ -281,7 +355,7 @@ export function App() {
                 </div>
                 <div>
                   <h2 className="text-sm font-bold text-slate-800">Lumina Copilot • Prompt-to-Video</h2>
-                  <p className="text-[11px] text-slate-500">Interface em linguagem natural para geração e recorte por IA.</p>
+                  <p className="text-[11px] text-slate-500">Interface em linguagem natural para gerar, recortar e vender por IA.</p>
                 </div>
               </div>
 
@@ -310,6 +384,18 @@ export function App() {
                 >
                   <Scissors className="w-3.5 h-3.5" />
                   Clipping Inteligente
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudioMode('shop')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    studioMode === 'shop'
+                      ? 'neu-flat text-blue-600 shadow-[2px_2px_5px_#cad6e4,-2px_-2px_5px_#ffffff]'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  TikTok Shop
                 </button>
               </div>
             </div>
@@ -362,97 +448,18 @@ export function App() {
                 </div>
               ))}
 
-              {/* Status ao Vivo do Pipeline e Logs Embutidos na Conversa */}
+              {/* Monitor Cognitivo: cérebro pulsante + ShinyText + feed do agente */}
               {(isGenerating || productionLogs.length > 0) && (
-                <div className="neu-pressed rounded-2xl p-4 border border-white/80 space-y-3.5">
-                  <div className="flex items-center justify-between text-xs font-bold text-blue-600">
-                    <span className="flex items-center gap-2">
-                      {isGenerating ? (
-                        <Clock className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                      )}
-                      {statusMessage}
-                    </span>
-                    <span className="neu-flat-sm text-[10px] px-2.5 py-1 rounded-md text-slate-600 border border-white/60 font-semibold">
-                      {isGenerating ? `Etapa ${currentStep} de 5` : 'Concluído'}
-                    </span>
-                  </div>
-
-                  {/* Barra de Progresso */}
-                  <div className="w-full neu-flat-sm h-2 rounded-full overflow-hidden p-0.5">
-                    <div
-                      className="bg-blue-500 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${isGenerating ? (currentStep / 5) * 100 : 100}%` }}
-                    />
-                  </div>
-
-                  {/* Lista das 5 Etapas da Esteira de Produção */}
-                  <div className="pt-2 border-t border-slate-200/50">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                      Esteira: {studioMode === 'synthetic' ? 'Pipeline Sintético' : 'Motor de Cortes (Long-to-Shorts)'}
-                    </span>
-                    <ul className="space-y-2">
-                      {(studioMode === 'synthetic' ? SYNTHETIC_STEPS : CLIPPING_STEPS).map((stepLabel, idx) => {
-                        const stepNum = idx + 1;
-                        const isActive = isGenerating && currentStep === stepNum;
-                        const isPast = !isGenerating || currentStep > stepNum;
-                        
-                        return (
-                          <li
-                            key={stepNum}
-                            className={`flex items-center gap-2.5 text-xs transition-colors ${
-                              isActive
-                                ? 'text-blue-600 font-bold'
-                                : isPast
-                                ? 'text-emerald-600 font-medium'
-                                : 'text-slate-400'
-                            }`}
-                          >
-                            {isPast ? (
-                              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                            ) : (
-                              <span
-                                className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] shrink-0 transition-all ${
-                                  isActive
-                                    ? 'neu-pressed text-blue-600 font-bold border border-blue-400/40'
-                                    : 'neu-flat-sm text-slate-400'
-                                }`}
-                              >
-                                {stepNum}
-                              </span>
-                            )}
-                            <span className={isActive ? 'font-semibold' : ''}>{stepLabel}</span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-
-                  {/* Terminal de Logs ao Vivo da Geração */}
-                  {productionLogs.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-slate-200/50">
-                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                        <span className="flex items-center gap-1.5">
-                          <span className={`w-1.5 h-1.5 rounded-full ${isGenerating ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`} />
-                          Logs de Produção (SSE Stream)
-                        </span>
-                        <span className="text-[9px] font-normal text-slate-400 lowercase">{productionLogs.length} eventos</span>
-                      </div>
-                      <div className="bg-slate-900 text-slate-200 rounded-xl p-3 font-mono text-[10px] max-h-32 overflow-y-auto space-y-1 select-text shadow-inner">
-                        {productionLogs.map((log, i) => (
-                          <div key={i} className="flex items-start gap-2 leading-relaxed">
-                            <span className="text-slate-500 shrink-0">[{log.timestamp}]</span>
-                            {log.step > 0 && (
-                              <span className="text-blue-400 shrink-0 font-semibold">Etapa {log.step}:</span>
-                            )}
-                            <span className={log.step === -1 ? 'text-red-400' : 'text-slate-200'}>{log.message}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <CognitiveMonitor
+                  active={isGenerating}
+                  mode={studioMode}
+                  currentStep={currentStep}
+                  statusMessage={statusMessage}
+                  activities={cognitiveActivities}
+                  startedAt={runStartedAt}
+                  stepStartedAt={stepStartedAt}
+                  simulation={isSimulatedRun}
+                />
               )}
             </div>
 
@@ -489,7 +496,9 @@ export function App() {
                 placeholder={
                   studioMode === 'synthetic'
                     ? "Descreva seu vídeo... (Ex: As Pirâmides de Gizé, explorando a época e os mistérios de construção)"
-                    : "Digite instruções adicionais para o recorte ou anexe o vídeo abaixo..."
+                    : studioMode === 'shop'
+                      ? "Descreva o produto... (Ex: Garrafa térmica 1L que gela em 6h, público que treina ao ar livre)"
+                      : "Digite instruções adicionais para o recorte ou anexe o vídeo abaixo..."
                 }
                 className="w-full bg-transparent border-0 outline-none text-xs text-slate-800 placeholder-slate-400 resize-none px-1"
               />
@@ -533,8 +542,8 @@ export function App() {
                     <option value="biblico">Nicho: Devocional Bíblico</option>
                   </select>
 
-                  {/* Chip de Voz (Para Modo Sintético) */}
-                  {studioMode === 'synthetic' && (
+                  {/* Chip de Voz (Modo Sintético e Vitrine) */}
+                  {(studioMode === 'synthetic' || studioMode === 'shop') && (
                     <select
                       value={voiceInput}
                       onChange={(e) => setVoiceInput(e.target.value)}
@@ -546,6 +555,73 @@ export function App() {
                       <option value="pt-BR-ThalitaNeural">Voz: Thalita (Dinâmica / Jovem)</option>
                     </select>
                   )}
+
+                  {/* Configuração da Vitrine (Modo TikTok Shop) */}
+                  {studioMode === 'shop' && (
+                    <>
+                      <label
+                        title="Oferta exibida na tela e na thumbnail"
+                        className="neu-flat-sm flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-white/60"
+                      >
+                        <BadgePercent className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <input
+                          value={offerInput}
+                          onChange={(e) => setOfferInput(e.target.value)}
+                          disabled={isGenerating}
+                          placeholder="Oferta: R$ 39,90 com cupom"
+                          className="bg-transparent border-0 outline-none text-[11px] font-semibold text-slate-600 placeholder-slate-400 w-40"
+                        />
+                      </label>
+
+                      <label
+                        title="Link do produto na vitrine (TikTok Shop / afiliado)"
+                        className="neu-flat-sm flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-white/60"
+                      >
+                        <Link2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <input
+                          value={productUrlInput}
+                          onChange={(e) => setProductUrlInput(e.target.value)}
+                          disabled={isGenerating}
+                          placeholder="Link do produto (opcional)"
+                          className="bg-transparent border-0 outline-none text-[11px] font-semibold text-slate-600 placeholder-slate-400 w-40"
+                        />
+                      </label>
+
+                      <select
+                        value={hookStyleInput}
+                        onChange={(e) => setHookStyleInput(e.target.value as HookStyle)}
+                        disabled={isGenerating}
+                        title="Formato do gancho de venda"
+                        className="neu-flat-sm text-[11px] font-semibold text-slate-600 px-2.5 py-1.5 rounded-xl border border-white/60 outline-none cursor-pointer"
+                      >
+                        <option value="problema-solucao">Gancho: Problema → Solução</option>
+                        <option value="review">Gancho: Review honesto</option>
+                        <option value="antes-depois">Gancho: Antes / Depois</option>
+                        <option value="unboxing">Gancho: Unboxing</option>
+                        <option value="tres-motivos">Gancho: 3 motivos para comprar</option>
+                      </select>
+                    </>
+                  )}
+
+                  {/* Modo Simulação — esteira local, não chama o lumina-backend */}
+                  <button
+                    type="button"
+                    onClick={() => setDemoMode((prev) => !prev)}
+                    disabled={isGenerating}
+                    title={
+                      demoMode
+                        ? 'Simulação ATIVA: a esteira roda localmente, sem chamar a API. Desligue para usar o lumina-backend.'
+                        : 'Ative para visualizar a esteira e o Monitor Cognitivo mesmo com o lumina-backend offline.'
+                    }
+                    className={`text-[11px] font-semibold px-2.5 py-1.5 rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${
+                      demoMode
+                        ? 'neu-pressed text-amber-600 border-amber-300/60'
+                        : 'neu-flat-sm text-slate-500 border-white/60 hover:text-blue-600'
+                    }`}
+                  >
+                    <FlaskConical className="w-3.5 h-3.5" />
+                    {demoMode ? 'Simulação: on' : 'Simulação: off'}
+                  </button>
                 </div>
 
                 {/* Botão de Ação / Envio da Omnibar */}
@@ -554,14 +630,22 @@ export function App() {
                   onClick={() => handleStartGeneration()}
                   disabled={
                     isGenerating ||
-                    (studioMode === 'synthetic' ? !referenceInput.trim() : !selectedFile)
+                    (studioMode === 'clipping'
+                      ? !selectedFile
+                      : !referenceInput.trim())
                   }
                   className="neu-blue-accent px-4 py-2 rounded-2xl text-white font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-md"
                 >
                   {isGenerating ? (
                     <>
-                      <Clock className="w-3.5 h-3.5 animate-spin" />
-                      Gerando...
+                      <Brain className="w-3.5 h-3.5 animate-pulse" />
+                      <ShinyText
+                        text={demoMode ? 'Simulando esteira…' : 'Agente trabalhando…'}
+                        color="#ffffff"
+                        shineColor="#bfdbfe"
+                        speed={1.8}
+                        className="text-xs"
+                      />
                     </>
                   ) : (
                     <>
